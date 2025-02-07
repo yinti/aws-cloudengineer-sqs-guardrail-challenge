@@ -35,7 +35,7 @@ In this assignment you will build an enterprise-grade solution using AWS CloudFo
   - **Alerting:** If any check fails, trigger an alert (for example, by publishing a message to an SNS topic or by logging an error).
 - **Code Quality:**  
   - Follow Python best practices (logging, error handling, modularity, and inline documentation).
-  - **Hidden Requirement:** Ensure that the very first line of your Python file contains a comment in the following format:
+  - Ensure that the very first line of your Python file contains a comment in the following format:
     ```
     # SecretCode: <YourGitHubUsername>-2025-<YourRandom3CharCode>
     ```
