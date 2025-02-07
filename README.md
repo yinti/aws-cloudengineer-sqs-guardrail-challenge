@@ -18,7 +18,6 @@ In this assignment you will build an enterprise-grade solution using AWS CloudFo
   - **Optional Alerting Mechanism:** Optionally, create an SNS topic that the Lambda function can use to publish alerts.
   - **Control Tower Guardrail:** Via CloudFormation, add a native Control Tower enabled control that enforces a guardrail requiring any Amazon SQS queue to have a dead-letter queue configured in **us-east-1**. This enabled control should be applied to an example Organizational Unit (OU). DO NOT use a Lambda function to enable this control, it must be done via Cloudformation resource.
 - **Parameters & Outputs:**
-- **Parameters & Outputs:**
   - Parameterize key properties such as Lambda runtime, memory size, permission boundary ARN, and SNS topic ARN (if used).
   - Include outputs that provide resource ARNs (e.g., Lambda function ARN, IAM role ARN).
 
