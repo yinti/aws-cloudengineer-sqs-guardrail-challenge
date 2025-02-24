@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for AWS Oraganization to check Dead Letter Queue'
+Parameters:
+  OUID:
+    Type: String
+    Description: "The ID of the Organizational Unit (OU)"
+    Default: ou1200
+Resources:    
+  DLQForSQSIsRequired:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Content:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "DLQForSQS"
+            Effect: "Deny"
+            Action:
+              - "sqs:CreateQueue"
+              - "sqs:SetQueueAttributes"
+            Resource: "*"
+            Condition:
+              StringNotLikeIfExists:
+                "sqs:RedrivePolicy": "*"
+              StringEquals:
+                "aws:RequestedRegion": "us-east-1"
+      Description: "Deny creation or modification of SQS queues without a dead-letter queue (DLQ) in us-east-1."
+      Name: "RequireDLQForSQS"
+      Type: "SERVICE_CONTROL_POLICY"
+      TargetIds:
+        - !Ref OUID    
