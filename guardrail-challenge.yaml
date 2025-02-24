@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for AWS Lambda Function'
+Parameters:
+  awsSQSManagedPolicy:
+    Type: String
+    Default: "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
+  awsSNSManagedPolicy:
+    Type: String
+    Default: "arn:aws:iam::aws:policy/AmazonSNSFullAccess"  
+  Sqsname:
+    Type: String
+    Default:  "guardrails-sqs-cfn"
+  Snsname:
+    Type: String
+    Default:  "guardrails-sns-cfn"      
+  LambdaRoleName:
+    Type: String
+    Default: iam_lambda_role_cfn
+  LambdaFunctionName:
+    Type: String
+    Default: sqscheck-cfn
+  LambdaPolicyName:
+    Type: String
+    Default: lambda-Policy
+  SubscriptionEndPoint:
+    Type: String
+    Default:  "deepakyinti@gmail.com" 
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref LambdaRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action:
+          - 'sts:AssumeRole' 
+      Path: /
+      ManagedPolicyArns:
+        - !Ref awsSQSManagedPolicy
+        - !Ref awsSNSManagedPolicy        
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['',['/aws/lambda/', !Ref LambdaFunctionName]]
+      RetentionDays: 5
+    DependsOn : MyQueue  
+  MyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Ref Sqsname
+      VisibilityTimeout: 180
+      ReceiveMessageWaitTimeSeconds: 0
+      Tags: 
+        - Key: 'Name'
+          Value : 'GuardRails SQS'
+        - Key:  'CreatedBy'
+          Value: 'CloudFormation'
+        - Key: 'Cost Center'
+          Value: '100'    
+  MySNS:
+    Type: AWS::SNS::Topic
+    Properties:
+        TopicName: !Ref Snsname
+        Subscription: 
+        - Endpoint: !Ref SubscriptionEndPoint
+          Protocol: email
+  MyEventMapping:
+    Type:  AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !GetAtt LambdaFunction.Arn
+      EventSourceArn: !GetAtt MyQueue.Arn
+      MaximumBatchingWindowInSeconds: 180
+  MyEventInvoke:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      DestinationConfig: 
+        OnFailure:
+          Destination: !Ref MySNS
+        OnSuccess:
+          Destination: !Ref MySNS   
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Qualifier: $LATEST
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      MemorySize: 128
+      Timeout: 150
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt 'LambdaRole.Arn'
+      Environment:
+        Variables:
+          sns_arn:  !Ref MySNS
+          sqs_name: !GetAtt MyQueue.QueueName
+      Code:
+        ZipFile: |
+          # Imports
+          import boto3
+          import os
+          import json
+          import logger
+          ec2 = boto3.client('ec2')
+          endpoints = ec2.describe_vpc_endpoints()
+          sns = boto3.client('sns')
+          sns_arn = os.environ.get('sns_arn')
+          sqs_name = os.environ.get('sqs_name')
+          sqs_client = boto3.client('sqs')
+          
+          def lambda_handler(event, context):
+            logger.info('Lambda Function Execution Started')
+            return true
+          def check_sqs_vpc_endpoint(endpoints):
+            try:
+              logger.info("checking vpc endpoints for SQS")
+              for endpoint in endpoints['VpcEndpoints']:
+                if(endpoint['ServiceName'] == 'com.amazonaws.us-east-1.sqs'):
+                  return True
+            except Exception as e:
+              logger.error(f"Error checking SQS VPC endpoint: {e}")
+              return False  
+          def check_customer_managed_key(sqs_client,sqs_name):
+            try:
+              logger.info("checking for customer managed keys")
+              getQAttributes=sqs_client.get_queue_attributes(QueueUrl=sqs_name, AttributeNames=['SqsManagedSseEnabled'])
+              if(getQAttributes['Attributes']):
+                return True
+            except Exception as e:
+              logger.error(f"Error checking SQS Customer Manager Key: {e}")
+              return False    
+          def check_tag_verification(sqs_client,sqs_name):
+            try:
+              logger.info("checking for tags")
+              getQTags = sqs_client.list_queue_tags(QueueUrl=sqs_name)
+              json_string = json.dumps(getQTags['Tags'], indent=2)
+              tags = ['Name', 'Created-By', 'Cost-Center']
+              for tag in tags:
+                if(tag in json_string):
+                  return True
+            except Exception as e:
+              logger.error(f"Error checking SQS Customer Manager Key: {e}")
+              return False
+Outputs:
+  SourceQueueURL:
+    Description: URL of source queue
+    Value:
+      Ref: MyQueue
+  SourceQueueARN:
+    Value: !GetAtt MyQueue.Arn
+    Description: Arn of created SQS               
