@@ -24,7 +24,7 @@ Parameters:
     Default: lambda-Policy
   SubscriptionEndPoint:
     Type: String
-    Default:  "deepakyinti@gmail.com" 
+    Default: "deepakyinti@gmail.com" 
 Resources:
   LambdaRole:
     Type: AWS::IAM::Role
@@ -33,20 +33,48 @@ Resources:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Principal:
-            Service: lambda.amazonaws.com
-          Action:
-          - 'sts:AssumeRole' 
-      Path: /
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole' 
+      Policies:
+        - PolicyName: LambdaLoggingPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"  
       ManagedPolicyArns:
         - !Ref awsSQSManagedPolicy
-        - !Ref awsSNSManagedPolicy        
+        - !Ref awsSNSManagedPolicy
+  MyEventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: SQSQueueCreationRule
+      Description: "Triggers func on SQS queue creation"
+      EventPattern:
+        source:
+          - "aws.sqs"
+        detail-type:
+          -  "AWS API Call via CloudTrail"
+        detail:
+          eventsource: 
+            - "sqs.amazonaws.com"
+          eventName:
+            - "CreateQueue"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: "LambdaTarget"            
   LogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Join ['',['/aws/lambda/', !Ref LambdaFunctionName]]
-      RetentionDays: 5
     DependsOn : MyQueue  
   MyQueue:
     Type: AWS::SQS::Queue
@@ -145,6 +173,9 @@ Resources:
               logger.error(f"Error checking SQS Customer Manager Key: {e}")
               return False
 Outputs:
+  LambdaFucntionARN:
+    Description: "ARN of Lambda Function"
+    Value: !GetAtt LambdaFunction.Arn
   SourceQueueURL:
     Description: URL of source queue
     Value:

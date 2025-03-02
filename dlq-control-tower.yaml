@@ -4,8 +4,9 @@ Parameters:
   OUID:
     Type: String
     Description: "The ID of the Organizational Unit (OU)"
-    Default: ou1200
-Resources:    
+    Default: org-id # Put your existing organization Id     
+Resources:
+  # Create Dead Letter Service Control Policy for Organization     
   DLQForSQSIsRequired:
     Type: AWS::Organizations::Policy
     Properties:
@@ -23,7 +24,7 @@ Resources:
                 "sqs:RedrivePolicy": "*"
               StringEquals:
                 "aws:RequestedRegion": "us-east-1"
-      Description: "Deny creation or modification of SQS queues without a dead-letter queue (DLQ) in us-east-1."
+      Description: "Deny creation or modification of SQS queues without a dead-letter queue"
       Name: "RequireDLQForSQS"
       Type: "SERVICE_CONTROL_POLICY"
       TargetIds:

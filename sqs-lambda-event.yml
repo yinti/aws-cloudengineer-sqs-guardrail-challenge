@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  awsSQSManagedPolicy:
+    Type: String
+    Default: "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
+  awsSNSManagedPolicy:
+    Type: String
+    Default: "arn:aws:iam::aws:policy/AmazonSNSFullAccess"  
+  Sqsname:
+    Type: String
+    Default:  "sqs-destination-for-func"
+  LambdaFunctionName:
+    Type: String
+    Default: "sqs-event-func" 
+  LambdaRuntime:
+    Type: String
+    Default: "python3.9"
+    Description: "Runtime environment for the Lambda function."
+  LambdaMemorySize:
+    Type: Number
+    Default: 128
+    Description: "Memory size (MB) for the Lambda function."
+  SQSEventBatchSize:
+    Type: Number
+    Default: 10
+    Description: "Number of messages to process in each Lambda invocation."            
+Resources:
+  MyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Ref Sqsname
+      VisibilityTimeout: 180
+      ReceiveMessageWaitTimeSeconds: 0
+      Tags: 
+        - Key: 'Name'
+          Value : 'GuardRails SQS'
+        - Key:  'CreatedBy'
+          Value: 'CloudFormation Template'
+        - Key: 'Cost Center'
+          Value: '100' 
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaSQSMonitorRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - lambda.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref awsSQSManagedPolicy
+        - !Ref awsSNSManagedPolicy
+      Policies:
+        - PolicyName: LambdaLoggingPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+        - PolicyName: LambdaSNSPublishPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref SNSNotificationTopic
+  MyLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      Runtime: !Ref LambdaRuntime
+      MemorySize: !Ref LambdaMemorySize
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import json
+          import logger
+
+          sns_client = boto3.client("sns")
+          ec2 = boto3.client('ec2')
+          endpoints = ec2.describe_vpc_endpoints()
+          sns = boto3.client('sns')
+          sns_arn = os.environ.get('SNS_TOPIC_ARN')
+          sqs_name = os.environ.get('sqs_name')
+          sqs_client = boto3.client('sqs')
+
+          def lambda_handler(event, context):
+              message = f"New SQS queue created: {json.dumps(event, indent=2)}"
+              print(message)
+              if sns_arn:
+                  sns_client.publish(TopicArn=sns_arn,Message=message,Subject="SQS Queue Created")
+              return {
+                  "statusCode": 200,
+                  "body": json.dumps("SQS CreateQueue event processed.")
+              }
+          def check_sqs_vpc_endpoint(endpoints):
+            try:
+              logger.info("checking vpc endpoints for SQS")
+              for endpoint in endpoints['VpcEndpoints']:
+                if(endpoint['ServiceName'] == 'com.amazonaws.us-east-1.sqs'):
+                  return True
+            except Exception as e:
+              logger.error(f"Error checking SQS VPC endpoint: {e}")
+              return False  
+          def check_customer_managed_key(sqs_client,sqs_name):
+            try:
+              logger.info("checking for customer managed keys")
+              getQAttributes=sqs_client.get_queue_attributes(QueueUrl=sqs_name, AttributeNames=['SqsManagedSseEnabled'])
+              if(getQAttributes['Attributes']):
+                return True
+            except Exception as e:
+              logger.error(f"Error checking SQS Customer Manager Key: {e}")
+              return False    
+          def check_tag_verification(sqs_client,sqs_name):
+            try:
+              logger.info("checking for tags")
+              getQTags = sqs_client.list_queue_tags(QueueUrl=sqs_name)
+              json_string = json.dumps(getQTags['Tags'], indent=2)
+              tags = ['Name', 'Created-By', 'Cost-Center']
+              for tag in tags:
+                if(tag in json_string):
+                  return True
+            except Exception as e:
+              logger.error(f"Error checking SQS Customer Manager Key: {e}")
+              return False
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SNSNotificationTopic
+          sqs_name: !GetAtt MyQueue.QueueName
+  # SNS Topic for Alerting
+  SNSNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: SQSQueueCreationAlerts
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['',['/aws/lambda/', !Ref MyLambdaFunction]]
+    DependsOn : MyQueue  
+  # Create SNS Topic       
+  SNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email  
+      Endpoint: "your-email@gmail.com"  # Replace with a real email id
+      TopicArn: !Ref SNSNotificationTopic
+  # EventBridge Rule for SQS Queue Creation
+  MyEventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: SQSQueueCreationRule
+      Description: "Triggers Lambda on SQS queue creation"
+      EventPattern:
+        source:
+          - "aws.sqs"
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          eventSource:
+            - "sqs.amazonaws.com"
+          eventName:
+            - "CreateQueue"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt MyLambdaFunction.Arn
+          Id: "LambdaTarget"
+  # Event Mapping for Lambda Function Destination to SQS        
+  MyEventMapping:
+    Type:  AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !GetAtt MyLambdaFunction.Arn
+      EventSourceArn: !GetAtt MyQueue.Arn
+      MaximumBatchingWindowInSeconds: 180
+  # Create Event Invoke for SNS Topic    
+  MyEventInvoke:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      DestinationConfig: 
+        OnFailure:
+          Destination: !Ref SNSNotificationTopic
+        OnSuccess:
+          Destination: !Ref SNSNotificationTopic   
+      FunctionName: !GetAtt MyLambdaFunction.Arn
+      Qualifier: $LATEST      
+  # Permission for EventBridge to Invoke Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MyLambdaFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt MyEventBridgeRule.Arn
+# Outputs from CloudFormation Resources      
+Outputs:
+  LambdaFunctionARN:
+    Description: "ARN of the Lambda function"
+    Value: !GetAtt MyLambdaFunction.Arn
+  SQSQueueARN:
+    Description: "ARN of the SQS Queue"
+    Value: !GetAtt MyQueue.Arn
+  SNSARN:
+    Description: "ARN of the SNS Topic"
+    Value: !Ref SNSNotificationTopic  
+  IAMRoleARN:
+    Description: "ARN of the IAM Role for Lambda"
+    Value: !GetAtt LambdaExecutionRole.Arn      
+
