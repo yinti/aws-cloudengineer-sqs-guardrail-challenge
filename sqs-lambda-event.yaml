@@ -98,14 +98,13 @@ Resources:
           sqs_client = boto3.client('sqs')
 
           def lambda_handler(event, context):
-              message = f"New SQS queue created: {json.dumps(event, indent=2)}"
-              print(message)
-              if sns_arn:
-                  sns_client.publish(TopicArn=sns_arn,Message=message,Subject="SQS Queue Created")
-              return {
-                  "statusCode": 200,
-                  "body": json.dumps("SQS CreateQueue event processed.")
-              }
+              message = "New SQS Message Queue is created"
+              logger.info(message)
+              if(check_customer_managed_key(sqs_client,sqs_name)) and check_sqs_vpc_endpoint(endpoints) and check_tag_verification(sqs_client, sqs_name):
+                  logger.info("SQS is compliant")
+              else:
+                  logger.info("SQS is not compliant")
+                  sns.publish(TopicArn=sns_arn,Message="SQS is not compliant",Subject="SQS is not compliant")    
           def check_sqs_vpc_endpoint(endpoints):
             try:
               logger.info("checking vpc endpoints for SQS")

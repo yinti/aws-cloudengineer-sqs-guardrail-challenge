@@ -60,9 +60,9 @@ Your README file should include:
   ```
   /CloudGuardRailChallenge.zip
   ├── README.md
-  ├── template.yaml         # CloudFormation template in YAML
-  └── lambda_function
-      └── lambda_function.py  # Python Lambda code
+  ├── dlq-control-tower.yml  # CloudFormation template for creating Service Account Policy for Dead Letter Queue for OrgID
+  └── sqs-lambda-event.yaml
+      └── lambda_function.py  # This CloudFomation Template contains the Lambda Function called. This function will check SQS Complicance, VPC Endpoints, Tags created for SQS Queue and Check for Customer Managed Encryption
   ```
 
 - **Submission:**  
