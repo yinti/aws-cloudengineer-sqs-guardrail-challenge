@@ -23,7 +23,15 @@ Parameters:
   SQSEventBatchSize:
     Type: Number
     Default: 10
-    Description: "Number of messages to process in each Lambda invocation."            
+    Description: "Number of messages to process in each Lambda invocation."  
+  S3BucketName:
+    Type: String
+    Description: "The S3 bucket where the Lambda ZIP file is stored."
+    Default: "guardrails-coding-lambda-function-folder"
+  S3ObjectKey:
+    Type: String
+    Description: "The S3 object key (path) of the Lambda ZIP file."
+    Default:  "lambda_function.zip"              
 Resources:
   MyQueue:
     Type: AWS::SQS::Queue
@@ -41,7 +49,7 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: LambdaSQSMonitorRole
+      RoleName: !Sub "${LambdaFunctionName}-ExecutionRole"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -65,6 +73,14 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "arn:aws:logs:*:*:*"
+        - PolicyName: LambdaBasicExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
         - PolicyName: LambdaSNSPublishPolicy
           PolicyDocument:
             Version: "2012-10-17"
@@ -82,63 +98,66 @@ Resources:
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
-        ZipFile: |
-          import json
-          import boto3
-          import os
-          import json
-          import logger
-
-          sns_client = boto3.client("sns")
-          ec2 = boto3.client('ec2')
-          endpoints = ec2.describe_vpc_endpoints()
-          sns = boto3.client('sns')
-          sns_arn = os.environ.get('SNS_TOPIC_ARN')
-          sqs_name = os.environ.get('sqs_name')
-          sqs_client = boto3.client('sqs')
-
-          def lambda_handler(event, context):
-              message = "New SQS Message Queue is created"
-              logger.info(message)
-              if(check_customer_managed_key(sqs_client,sqs_name)) and check_sqs_vpc_endpoint(endpoints) and check_tag_verification(sqs_client, sqs_name):
-                  logger.info("SQS is compliant")
-              else:
-                  logger.info("SQS is not compliant")
-                  sns.publish(TopicArn=sns_arn,Message="SQS is not compliant",Subject="SQS is not compliant")    
-          def check_sqs_vpc_endpoint(endpoints):
-            try:
-              logger.info("checking vpc endpoints for SQS")
-              for endpoint in endpoints['VpcEndpoints']:
-                if(endpoint['ServiceName'] == 'com.amazonaws.us-east-1.sqs'):
-                  return True
-            except Exception as e:
-              logger.error(f"Error checking SQS VPC endpoint: {e}")
-              return False  
-          def check_customer_managed_key(sqs_client,sqs_name):
-            try:
-              logger.info("checking for customer managed keys")
-              getQAttributes=sqs_client.get_queue_attributes(QueueUrl=sqs_name, AttributeNames=['SqsManagedSseEnabled'])
-              if(getQAttributes['Attributes']):
-                return True
-            except Exception as e:
-              logger.error(f"Error checking SQS Customer Manager Key: {e}")
-              return False    
-          def check_tag_verification(sqs_client,sqs_name):
-            try:
-              logger.info("checking for tags")
-              getQTags = sqs_client.list_queue_tags(QueueUrl=sqs_name)
-              json_string = json.dumps(getQTags['Tags'], indent=2)
-              tags = ['Name', 'Created-By', 'Cost-Center']
-              for tag in tags:
-                if(tag in json_string):
-                  return True
-            except Exception as e:
-              logger.error(f"Error checking SQS Customer Manager Key: {e}")
-              return False
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3ObjectKey
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref SNSNotificationTopic
           sqs_name: !GetAtt MyQueue.QueueName
+      # Code:
+      #   ZipFile: |
+      #     import json
+      #     import boto3
+      #     import os
+      #     import json
+      #     import logger
+
+      #     sns_client = boto3.client("sns")
+      #     ec2 = boto3.client('ec2')
+      #     endpoints = ec2.describe_vpc_endpoints()
+      #     sns = boto3.client('sns')
+      #     sns_arn = os.environ.get('SNS_TOPIC_ARN')
+      #     sqs_name = os.environ.get('sqs_name')
+      #     sqs_client = boto3.client('sqs')
+
+      #     def lambda_handler(event, context):
+      #         message = "New SQS Message Queue is created"
+      #         logger.info(message)
+      #         if(check_customer_managed_key(sqs_client,sqs_name)) and check_sqs_vpc_endpoint(endpoints) and check_tag_verification(sqs_client, sqs_name):
+      #             logger.info("SQS is compliant")
+      #         else:
+      #             logger.info("SQS is not compliant")
+      #             sns.publish(TopicArn=sns_arn,Message="SQS is not compliant",Subject="SQS is not compliant")    
+      #     def check_sqs_vpc_endpoint(endpoints):
+      #       try:
+      #         logger.info("checking vpc endpoints for SQS")
+      #         for endpoint in endpoints['VpcEndpoints']:
+      #           if(endpoint['ServiceName'] == 'com.amazonaws.us-east-1.sqs'):
+      #             return True
+      #       except Exception as e:
+      #         logger.error(f"Error checking SQS VPC endpoint: {e}")
+      #         return False  
+      #     def check_customer_managed_key(sqs_client,sqs_name):
+      #       try:
+      #         logger.info("checking for customer managed keys")
+      #         getQAttributes=sqs_client.get_queue_attributes(QueueUrl=sqs_name, AttributeNames=['SqsManagedSseEnabled'])
+      #         if(getQAttributes['Attributes']):
+      #           return True
+      #       except Exception as e:
+      #         logger.error(f"Error checking SQS Customer Manager Key: {e}")
+      #         return False    
+      #     def check_tag_verification(sqs_client,sqs_name):
+      #       try:
+      #         logger.info("checking for tags")
+      #         getQTags = sqs_client.list_queue_tags(QueueUrl=sqs_name)
+      #         json_string = json.dumps(getQTags['Tags'], indent=2)
+      #         tags = ['Name', 'Created-By', 'Cost-Center']
+      #         for tag in tags:
+      #           if(tag in json_string):
+      #             return True
+      #       except Exception as e:
+      #         logger.error(f"Error checking SQS Customer Manager Key: {e}")
+      #         return False
   # SNS Topic for Alerting
   SNSNotificationTopic:
     Type: AWS::SNS::Topic
