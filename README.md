@@ -2,69 +2,114 @@
 
 ## Overview
 
-In this assignment you will build an enterprise-grade solution using AWS CloudFormation (YAML only) and a Python Lambda function. The solution will serve as a guardrail for newly created SQS queues. You will deploy your solution via GitHub by forking the repository and submitting a pull request. Use of GitHub Actions for CI/CD is a bonus.
+Using AWS CloudFormation (YAML only) created Python Lambda function which checks for newly created SQS queues. It also checks for following data points
+- Verify that a VPC endpoint for SQS exists
+- Ensure that the SQS queue has encryption enabled
+- Confirm that the queue uses a customer-managed key (CMK) rather than an AWS-managed key.
+- Check that the queue is tagged with the following keys (values can be arbitrary):
+  -   Name
+  -   Created By
+  -   Cost Center
+If any check fails, trigger an alert by publishing a message to an SNS topic or by logging an error.
 
 ---
+### Resources Created using this Cloudformation
+  - **Lambda Function:**
+  - **IAM Role:** 
+  - **EventBridge Rule:** 
+  - **Optional Alerting Mechanism:** 
+  - **Control Tower Guardrail:** 
 
-## Assignment Requirements
+## Deployment Instructions
+### **Pre-requisites**
+Before deploying the stack, ensure you have:
+1. **AWS CLI installed** ([Installation Guide](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html)).
+2. **An S3 bucket** to store the Lambda function ZIP file. This can be created using AWS Console or using AWS CLI running below commands
+   - **aws s3 mb** (your-s3-bucket)
+4. **AWS IAM permissions** to create CloudFormation stacks, S3, Lambda, SQS, and SNS resources.
 
-### 1. CloudFormation Template (YAML Only)
-
-- **Template Language:** YAML exclusively.
-- **Resources:**
-  - **Lambda Function:** Deploy a Python-based Lambda function.
-  - **IAM Role:** Create an IAM role for the Lambda function with an attached permission boundary. You can define the managed policy in the same template or reference an external policy via a parameter.
-  - **EventBridge Rule:** Configure an EventBridge rule to trigger the Lambda function on SQS queue creation events (for example, when the `CreateQueue` API call is made).
-  - **Optional Alerting Mechanism:** Optionally, create an SNS topic that the Lambda function can use to publish alerts.
-  - **Control Tower Guardrail:** Via CloudFormation, add a native Control Tower enabled control that enforces a guardrail requiring any Amazon SQS queue to have a dead-letter queue configured in **us-east-1**. This enabled control should be applied to an example Organizational Unit (OU). DO NOT use a Lambda function to enable this control, it must be done via Cloudformation resource.
-- **Parameters & Outputs:**
-  - Parameterize key properties such as Lambda runtime, memory size, permission boundary ARN, and SNS topic ARN (if used).
-  - Include outputs that provide resource ARNs (e.g., Lambda function ARN, IAM role ARN).
-
-### 2. Python Lambda Function
-
-- **Trigger:** The function must be invoked upon an SQS queue creation event.
-- **Functionality:** The Lambda function should perform the following checks:
-  - **VPC Endpoint Check:** Verify that a VPC endpoint for SQS exists.
-  - **Encryption-at-Rest:** Ensure that the SQS queue has encryption enabled.
-  - **Customer-Managed Key (CMK):** Confirm that the queue uses a customer-managed key (CMK) rather than an AWS-managed key.
-  - **Tag Verification:** Check that the queue is tagged with the following keys (values can be arbitrary):
-    - **Name**
-    - **Created By**
-    - **Cost Center**
-  - **Alerting:** If any check fails, trigger an alert (for example, by publishing a message to an SNS topic or by logging an error).
-- **Code Quality:**  
-  - Follow Python best practices (logging, error handling, modularity, and inline documentation).
-  - Ensure that the very first line of your Python file contains a comment in the following format:
-    ```
-    # SecretCode: <YourGitHubUsername>-2025-<YourRandom3CharCode>
-    ```
-    *(Replace `<YourGitHubUsername>` and `<YourRandom3CharCode>` with your own values.)*
-
-### 3. Documentation (README)
-
-Your README file should include:
-
-- **Deployment Instructions:**  
-  - Step-by-step guidance to deploy the CloudFormation stack using the AWS CLI or AWS Console.
-  - Explanation of any required parameters.
-- **Design Decisions:**  
-  - A brief description of your approach to implementing the permission boundary and how your solution can be extended or applied in a multi-account environment.
-- **Bonus (Optional):**  
-  - Any GitHub Actions configuration you add to demonstrate CI/CD capabilities is a bonus.
-
-### 4. Packaging & Submission
-
-- **Suggested File Structure:**
-
+### **Step 1: Created Service Account Policy for the OrgID for Dead Letter Queue**
+```sh
+aws cloudformation create-stack --stack-name DLQDeploymentStack \
+  --template-body file://dlq-control-tower.yml \
+  --parameters ParameterKey=OUID,ParameterValue=<your-aws-organization-id> \
+```
+### **Step 2: Create S3 bucket <name-of-the-bucket>**
+Create S3 bucket by running the following command using AWS CLI:
+```sh
+aws s3 mb <name-of-s3-bucket-to-be-created>
+```
+### **Step 3: Create Zip File for the lambda function**
+Run the following command to create the ZIP file:
+```sh
+zip lambda_function.zip lambda_function.py
+```
+### **Step 4: Upload the zip Python Function script to S3 bucket created**
+Upload the ZIP file to your S3 bucket:
+```sh
+aws s3 cp lambda_function.zip s3://<your-s3-bucket>/lambda_function.zip
+```
+### **Step 5: Now run the main Cloud Formation Template Stack by running below command with parameters**
+Run the following AWS CLI command to deploy the CloudFormation stack
+```sh
+aws cloudformation create-stack --stack-name LambdaDeploymentStack \
+  --template-body file://cloudformation-template-sqs-lambda.yaml \
+  --parameters ParameterKey=S3BucketName,ParameterValue=<your-s3-bucket> \
+               ParameterKey=S3ObjectKey,ParameterValue=lambda_function.zip \
+               ParameterKey=awsSQSManagedPolicy,ParameterValue=arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole \
+               ParameterKey=awsSQSManagedPolicy,ParameterValue=arn:aws:iam::aws:policy/AmazonSNSFullAccess \
+               ParameterKey=Sqsname,ParameterValue=sqs-destination-for-func \
+               ParameterKey=LambdaFunctionName,ParameterValue=sqs-event-func \
+               ParameterKey=LambdaRuntime,ParameterValue=python3.9 \
+               ParameterKey=LambdaMemorySize,ParameterValue=128 \
+               ParameterKey=SQSEventBatchSize,ParameterValue=10
+```
+### **Step 6: Verify Deployment**
+Check Stack Status
+```sh
+aws cloudformation describe-stacks --stack-name LambdaDeploymentStack --query "Stacks[0].StackStatus"
+```
+### **Step 7: Retrieve the Lambda Function ARN, IAMRole ARN , SNS ARN and SQSQueue ARN**
+```sh
+aws cloudformation describe-stacks --stack-name LambdaDeploymentStack --query "Stacks[0].Outputs"
+Expected Output:
+    [
+      {
+        "OutputKey": "LambdaFunctionARN",
+        "OutputValue": "arn:aws:lambda:us-east-1:12345678:function:sqs-event-func"
+      },
+      {
+        "OutputKey": "IAMRoleARN",
+        "OutputValue": "arn:aws:iam::12345678:role/sqs-event-func-ExecutionRole"
+      },
+      {
+        "OutputKey": "SNSARN",
+        "OutputValue": "arn:aws:iam::12345678:role/SQSQueueCreationAlerts"
+      },
+      {
+        "OutputKey": "SQSQueueARN",
+        "OutputValue": "arn:aws:iam::12345678:role/sqs-destination-for-func"
+      }
+    ]
+```
+**Suggested File Structure:**
   ```
-  /CloudGuardRailChallenge.zip
   ├── README.md
-  ├── dlq-control-tower.yml  # CloudFormation template for creating Service Account Policy for Dead Letter Queue for OrgID
-  └── sqs-lambda-event.yaml
-      └── lambda_function.py  # This CloudFomation Template contains the Lambda Function called. This function will check SQS Complicance, VPC Endpoints, Tags created for SQS Queue and Check for Customer Managed Encryption
-  ```
+  ├── lambda_function.py
+  ├── dlq-control-tower.yml  # This CloudFormation template will be used to creat Service Account Policy for Dead Letter Queue for OrgID passed as a parameter
+  └── cloudformation-template-sqs-lambda.yml # This template will create all the resources to be used by the Lambda Function
+        -  SNSSubscription
+        -  SNSNotificationTopic
+        -  EventMapping
+        -  LambdaExecutionRole
+        -  Lambda Function
+        -  LogGroup
+        -  SQS
+        -  EventInvoke
+        -  LambdaInvokePermission
 
-- **Submission:**  
-  - Fork this GitHub repository for this test.
-  - Commit your changes and submit a pull request for evaluation.
+  ```
+### **Summary**
+- CloudFormation Template → Deploys Lambda from S3 ZIP file.
+- Python Script → Lambda function that checks the VPC Endpoints, check Customer Managed Key, SQS is properly Encrypted and Validates Tags associated with SQS.
+- Deployment Steps → Zip the file, upload to S3, and deploy via CloudFormation.
