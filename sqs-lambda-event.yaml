@@ -33,6 +33,7 @@ Parameters:
     Description: "The S3 object key (path) of the Lambda ZIP file."
     Default:  "lambda_function.zip"              
 Resources:
+  # SQS Queue to be created for guardrails
   MyQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -46,6 +47,7 @@ Resources:
           Value: 'CloudFormation Template'
         - Key: 'Cost Center'
           Value: '100' 
+  # Lambda Execution Role Creation        
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -89,6 +91,7 @@ Resources:
                 Action:
                   - sns:Publish
                 Resource: !Ref SNSNotificationTopic
+  # Lambda function for monitoring and goverance of SQS              
   MyLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:

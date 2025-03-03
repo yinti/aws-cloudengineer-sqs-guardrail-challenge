@@ -13,7 +13,7 @@ sqs_name = os.environ.get('sqs_name')
 sqs_client = boto3.client('sqs')
 
 def lambda_handler(event, context):
-    message = "SQS Message Queue is created"
+    message = "SQS Message Queue is created using CloudFormation"
     logger.info(message)
     if(check_customer_managed_key(sqs_client,sqs_name)) and check_sqs_vpc_endpoint(endpoints) and check_tag_verification(sqs_client, sqs_name):
         logger.info("SQS is compliant")
